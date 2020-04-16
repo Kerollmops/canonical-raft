@@ -1,0 +1,30 @@
+[package]
+name = "canonical-raft-sys"
+# NB: When modifying, also modify html_root_url in lib.rs
+# NB: The version must match the version of mdbx
+version = "0.0.1"
+authors = ["Kerollmops <renault.cle@gmail.com>"]
+license = "Apache-2.0"
+description = "Rust bindings for the Raft implementation of canonical."
+documentation = "https://docs.rs/canonical-raft-sys"
+homepage = "https://github.com/Kerollmops/canonical-raft-sys"
+repository = "https://github.com/Kerollmops/canonical-raft-sys.git"
+readme = "README.md"
+keywords = ["Raft", "replication", "consensus", "bindings", "library"]
+categories = ["algorithms", "external-ffi-bindings"]
+edition = "2018"
+
+# NB: Use "--features bindgen" to generate bindings.
+build = "build.rs"
+
+[lib]
+name = "canonical_raft_sys"
+
+[dependencies]
+libc = "0.2"
+libuv-sys2 = { path = "../libuv-sys" } # make that an example dependency
+
+[build-dependencies]
+pkg-config = "0.3"
+cc = "1.0"
+bindgen = { version = "0.53.2", default-features = false, optional = true, features = ["runtime"] }
