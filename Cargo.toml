@@ -23,8 +23,12 @@ name = "canonical_raft_sys"
 [dependencies]
 libc = "0.2"
 libuv-sys2 = { path = "../libuv-sys" } # make that an example dependency
+# libuv-sys2 = "1.35.3"
 
 [build-dependencies]
 pkg-config = "0.3"
 cc = "1.0"
 bindgen = { version = "0.53.2", default-features = false, optional = true, features = ["runtime"] }
+
+[profile.release]
+debug = true

@@ -43,13 +43,14 @@ unsafe extern "C" fn fsm_apply(
     println!("Hello fsm_apply");
 
     let buf = slice_from_buf(*buf);
-    if buf.len() != 8 {
+    if buf.len() != mem::size_of::<u64>() {
         return RAFT_MALFORMED;
     }
 
     f.count += buf.try_into().map(u64::from_ne_bytes).unwrap();
+    (*result) = &mut f.count as *mut _ as *mut c_void;
 
-    ptr::copy_nonoverlapping(&f.count, *result as *mut u64, 1);
+    println!("count after apply: {}", f.count);
 
     return 0;
 }
@@ -62,7 +63,7 @@ unsafe extern "C" fn fsm_snapshot(
 {
     let f: &mut Fsm = mem::transmute((*fsm).data);
 
-    println!("Hello fsm_snapshot");
+    println!("Hello fsm_snapshot (count {})", f.count);
 
     *n_bufs = 1;
     *bufs = raft_malloc(mem::size_of::<raft_buffer>()) as *mut raft_buffer;
@@ -97,6 +98,8 @@ unsafe extern "C" fn fsm_restore(fsm: *mut raft_fsm, buf: *mut raft_buffer) -> c
 
     raft_free((*buf).base);
 
+    println!("bye! fsm_restore (count {})", f.count);
+
     return 0;
 }
 
@@ -105,8 +108,6 @@ unsafe extern "C" fn fsm_init(fsm: *mut raft_fsm) -> c_int {
     if f.is_null() {
         return RAFT_NOMEM;
     }
-
-    println!("Hello fsm_init");
 
     (*f).count = 0;
     (*fsm).version = 1;
@@ -177,7 +178,7 @@ struct Server {
     io: raft_io,                     // UV I/O backend.
     fsm: raft_fsm,                   // Sample application FSM.
     id: u32,                         // Raft instance ID.
-    address: CString,                // Raft instance address.
+    address: [u8; 64],               // Raft instance address.
     raft: raft,                      // Raft instance.
     transfer: raft_transfer,         // Transfer leadership request.
     close_cb: Option<ServerCloseCb>, // Optional close callback.
@@ -187,34 +188,39 @@ struct Server {
 type ServerCloseCb = unsafe extern "C" fn(*mut Server);
 
 /// Initialize the example server struct, without starting it yet.
-unsafe fn server_init(s: *mut Server, loop_: *mut uv_loop_s, dir: *const c_char, id: u32) {
+unsafe fn server_init(
+    s: *mut Server,
+    loop_: *mut uv_loop_s,
+    dir: *const c_char,
+    id: u32,
+) {
     // // Seed the random generator
     // timespec_get(&now, TIME_UTC);
     // srandom((unsigned)(now.tv_nsec ^ now.tv_sec));
     // unimplemented!();
 
+    ptr::write_bytes(s, 0, 1);
+
     (*s).loop_ = loop_;
 
     // Add a timer to periodically try to propose a new entry.
-    let mut timer = mem::MaybeUninit::zeroed();
-    let rv = unsafe { uv_timer_init(loop_, timer.as_mut_ptr()) };
+    let rv = uv_timer_init((*s).loop_, &mut (*s).timer);
     if rv != 0 {
         // Logf(s->id, "uv_timer_init(): %s", uv_strerror(rv));
         // goto err;
         panic!("Whoops...");
     }
-    let timer = unsafe { timer.assume_init() };
     (*s).timer.data = s as *mut _;
 
     // Initialize the TCP-based RPC transport.
-    let rv = unsafe { raft_uv_tcp_init(&mut (*s).transport, loop_) };
+    let rv = raft_uv_tcp_init(&mut (*s).transport, (*s).loop_);
     if rv != 0 {
         // goto err;
         panic!("Ouïe!!!");
     }
 
     // Initialize the libuv-based I/O backend.
-    let rv = unsafe { raft_uv_init(&mut (*s).io, loop_, dir, &mut (*s).transport) };
+    let rv = raft_uv_init(&mut (*s).io, (*s).loop_, dir, &mut (*s).transport);
     if rv != 0 {
         // Logf(s->id, "raft_uv_init(): %s", s->io.errmsg);
         // goto err_after_uv_tcp_init;
@@ -222,17 +228,23 @@ unsafe fn server_init(s: *mut Server, loop_: *mut uv_loop_s, dir: *const c_char,
     }
 
     // Initialize the finite state machine.
-    let rv = unsafe { fsm_init(&mut (*s).fsm) };
+    let rv = fsm_init(&mut (*s).fsm);
     if rv != 0 {
         // Logf(s->id, "FsmInit(): %s", raft_strerror(rv));
         // goto err_after_uv_init;
         panic!("Aïe");
     }
 
+    // Save the server ID.
+    (*s).id = id;
+
     // Render the address.
     let address = CString::new(format!("127.0.0.1:900{}", id)).unwrap();
 
-    let rv = unsafe { raft_init(&mut (*s).raft, &mut (*s).io, &mut (*s).fsm, id.into(), address.as_ptr()) };
+    let bytes = address.as_bytes_with_nul();
+    (*s).address[..bytes.len()].copy_from_slice(bytes);
+
+    let rv = raft_init(&mut (*s).raft, &mut (*s).io, &mut (*s).fsm, id.into(), address.as_ptr());
     if rv != 0 {
         let errmsg = unsafe {
             // This is safe since the error messages returned from mdb_strerror are static.
@@ -245,14 +257,13 @@ unsafe fn server_init(s: *mut Server, loop_: *mut uv_loop_s, dir: *const c_char,
     (*s).raft.data = s as *mut _;
 
     // Bootstrap the initial configuration if needed.
-    let mut configuration = mem::MaybeUninit::zeroed();
-    unsafe { raft_configuration_init(configuration.as_mut_ptr()) };
-    let mut configuration = unsafe { configuration.assume_init() };
+    let mut configuration = mem::zeroed();
+    raft_configuration_init(&mut configuration);
 
     for i in 0..N_SERVERS {
         let server_id = (i + 1) as u64;
         let address = CString::new(format!("127.0.0.1:900{}", server_id)).unwrap();
-        let rv = unsafe { raft_configuration_add(&mut configuration, server_id, address.as_ptr(), RAFT_VOTER) };
+        let rv = raft_configuration_add(&mut configuration, server_id, address.as_ptr(), RAFT_VOTER);
         if rv != 0 {
             // Logf(s->id, "raft_configuration_add(): %s", raft_strerror(rv));
             // goto err_after_configuration_init;
@@ -260,16 +271,17 @@ unsafe fn server_init(s: *mut Server, loop_: *mut uv_loop_s, dir: *const c_char,
         }
     }
 
-    let rv = unsafe { raft_bootstrap(&mut (*s).raft, &mut configuration) };
+    let rv = raft_bootstrap(&mut (*s).raft, &configuration);
     if rv != 0 && rv != RAFT_CANTBOOTSTRAP {
         // goto err_after_configuration_init;
         panic!("Bubuut?!");
     }
-    unsafe { raft_configuration_close(&mut configuration) };
+
+    raft_configuration_close(&mut configuration);
     drop(configuration);
 
-    unsafe { raft_set_snapshot_threshold(&mut (*s).raft, 64) };
-    unsafe { raft_set_snapshot_trailing(&mut (*s).raft, 16) };
+    raft_set_snapshot_threshold(&mut (*s).raft, 64);
+    raft_set_snapshot_trailing(&mut (*s).raft, 16);
 
     (*s).transfer.data = s as *mut _;
 
@@ -291,6 +303,8 @@ unsafe extern "C" fn server_apply_cb(req: *mut raft_apply, status: i32, result: 
 
     raft_free(req as *mut _);
 
+    println!("{}: Hello server_apply_cb (status: {})", s.id, status);
+
     if status != 0 {
         if status != RAFT_LEADERSHIPLOST as i32 {
             let errmsg = unsafe {
@@ -298,7 +312,7 @@ unsafe extern "C" fn server_apply_cb(req: *mut raft_apply, status: i32, result: 
                 let err: *const c_char = raft_errmsg(&mut (*s).raft);
                 str::from_utf8_unchecked(CStr::from_ptr(err).to_bytes())
             };
-            eprintln!("{}: raft_apply() callback: {} ({})", s.id, errmsg, status);
+            println!("{}: raft_apply() callback: {} ({})", s.id, errmsg, status);
         }
         return;
     }
@@ -306,7 +320,7 @@ unsafe extern "C" fn server_apply_cb(req: *mut raft_apply, status: i32, result: 
     let count = *(result as *const i32);
 
     // if count % 100 == 0 {
-        eprintln!("{}: count {}", s.id, count);
+        println!("{}: count {}", s.id, count);
     // }
 }
 
@@ -314,11 +328,12 @@ unsafe extern "C" fn server_apply_cb(req: *mut raft_apply, status: i32, result: 
 unsafe extern "C" fn server_timer_cb(timer: *mut uv_timer_t) {
     let s: &mut Server = mem::transmute((*timer).data);
 
-    eprintln!("hello server_timer_cb");
-
     if s.raft.state != RAFT_LEADER as u16 {
+        // println!("{}: not leader, skipping", s.id);
         return;
     }
+
+    println!("{}: I am the leader", s.id);
 
     let buf = raft_buffer {
         len: mem::size_of::<u64>(),
@@ -342,7 +357,7 @@ unsafe extern "C" fn server_timer_cb(timer: *mut uv_timer_t) {
 
     eprintln!("before raft_apply");
 
-    let rv = raft_apply(&mut s.raft, req, &buf, 1, Some(server_apply_cb));
+    let rv = raft_apply(&mut (*s).raft, req, &buf, 1, Some(server_apply_cb));
     if rv != 0 {
         // Logf(s->id, "raft_apply(): %s", raft_errmsg(&s->raft));
         return;
@@ -353,7 +368,7 @@ unsafe extern "C" fn server_timer_cb(timer: *mut uv_timer_t) {
 
 /// Start the example server.
 unsafe fn server_start(s: *mut Server) -> i32 {
-    eprintln!("{}: starting", (*s).id);
+    println!("{}: starting", (*s).id);
 
     let rv = raft_start(&mut (*s).raft);
     if rv != 0 {
@@ -361,13 +376,11 @@ unsafe fn server_start(s: *mut Server) -> i32 {
         return rv;
     }
 
-    eprintln!("after raft_start");
-
-    // let rv = uv_timer_start(&mut (*s).timer, Some(server_timer_cb), 0, APPLY_RATE);
-    // if rv != 0 {
-    //     // Logf(s->id, "uv_timer_start(): %s", uv_strerror(rv));
-    //     return rv;
-    // }
+    let rv = uv_timer_start(&mut (*s).timer, Some(server_timer_cb), 0, APPLY_RATE);
+    if rv != 0 {
+        // Logf(s->id, "uv_timer_start(): %s", uv_strerror(rv));
+        return rv;
+    }
 
     return 0;
 }
@@ -376,7 +389,7 @@ unsafe fn server_start(s: *mut Server) -> i32 {
 unsafe fn server_close(s: &mut Server, cb: ServerCloseCb) {
     s.close_cb = Some(cb);
 
-    eprintln!("{}: stopping", s.id);
+    println!("{}: stopping", s.id);
 
     // Close the timer asynchronously if it was successfully
     // initialized. Otherwise invoke the callback immediately.
@@ -409,22 +422,18 @@ unsafe extern "C" fn main_sigint_cb(handle: *mut uv_signal_s, signum: i32) {
     server_close(server, main_server_close_cb);
 }
 
-unsafe extern "C" fn hello_timer_cb(timer: *mut uv_timer_t) {
-    println!("Hello timer COUCOU");
-}
-
 fn main() {
     let mut args = std::env::args();
     let dir = CString::new(args.nth(1).unwrap()).unwrap();
     let id: u32 = args.next().unwrap().parse().unwrap();
 
-//     /* Ignore SIGPIPE, see https://github.com/joyent/libuv/issues/1254 */
-//     signal(SIGPIPE, SIG_IGN);
+    // Ignore SIGPIPE, see https://github.com/joyent/libuv/issues/1254
+    unsafe { libc::signal(libc::SIGPIPE, libc::SIG_IGN) };
 
-    println!("UV_VERSION_MAJOR {}.{}.{}", UV_VERSION_MAJOR, UV_VERSION_MINOR, UV_VERSION_PATCH);
+    // println!("UV_VERSION_MAJOR {}.{}.{}", UV_VERSION_MAJOR, UV_VERSION_MINOR, UV_VERSION_PATCH);
 
     // Initialize the libuv loop.
-    let mut loop_ = unsafe { uv_default_loop() };
+    let loop_ = unsafe { uv_default_loop() };
     // let mut loop_ = mem::MaybeUninit::zeroed();
     // let rv = unsafe { uv_loop_init(loop_.as_mut_ptr()) };
     // if rv != 0 {
@@ -434,29 +443,9 @@ fn main() {
     // }
     // let mut loop_ = unsafe { loop_.assume_init() };
 
-    // /** TEST **/
-    // // Add a timer to periodically try to propose a new entry.
-    // let mut timer = mem::MaybeUninit::zeroed();
-    // let rv = unsafe { uv_timer_init(loop_, timer.as_mut_ptr()) };
-    // if rv != 0 {
-    //     // Logf(s->id, "uv_timer_init(): %s", uv_strerror(rv));
-    //     // goto err;
-    //     panic!("Whoops...");
-    // }
-    // let mut timer = unsafe { timer.assume_init() };
-    // let rv = unsafe { uv_timer_start(&mut timer, Some(hello_timer_cb), 0, 1000) }; // 1s
-    // if rv != 0 {
-    //     // Logf(s->id, "uv_timer_start(): %s", uv_strerror(rv));
-    //     // return rv;
-    //     panic!("WooooW");
-    // }
-
     // Initialize the example server.
-    let mut server = mem::MaybeUninit::uninit();
-    let mut server = unsafe {
-        server_init(server.as_mut_ptr(), loop_, dir.as_ptr(), id);
-        server.assume_init()
-    };
+    let mut server = unsafe { mem::zeroed() };
+    unsafe { server_init(&mut server, loop_, dir.as_ptr(), id) };
     // let mut server = Server::new(loop_, dir.as_ptr(), id);
 
     // // Add a signal handler to stop the example server upon SIGINT.
@@ -468,7 +457,7 @@ fn main() {
     //     panic!("Cannot uv_signal_init");
     // }
     // let mut sigint = unsafe { sigint.assume_init() };
-    // sigint.data = &mut *server as *mut _ as *mut c_void;
+    // sigint.data = &mut server as *mut _ as *mut c_void;
 
     // let rv = unsafe { uv_signal_start(&mut sigint, Some(main_sigint_cb), libc::SIGINT) };
     // if rv != 0 {
