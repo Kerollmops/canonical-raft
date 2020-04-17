@@ -1,6 +1,6 @@
 # canonical-raft
 
-The, not released yet, simplest Rust library to replicate anything over the network
+The, not released yet, simplest Rust library to replicate anything over the network.
 
 ## Current Limitations
 
@@ -10,9 +10,9 @@ One other restraining element is that the currently provided `raft_io` runtime i
 
 ## Plans for canonical-raft
 
-  1. [ ] Create a safe abstraction on top of the bindings from canonical-raft-sys.
-  2. [ ] Create a `raft_io` runtime that could run on top of any async runtime.
-  3. [ ] Create a canonical-raft-mdb akin to the [`MDBstore` of hashicorp](https://github.com/hashicorp/raft-mdb).
+  1. [ ] [#1](https://github.com/Kerollmops/canonical-raft/issues/1) Create a safe abstraction on top of the bindings from canonical-raft-sys.
+  2. [ ] [#2](https://github.com/Kerollmops/canonical-raft/issues/2) Create a `raft_io` interface that could run on top of any async runtime.
+  3. [ ] [#3](https://github.com/Kerollmops/canonical-raft/issues/3) Create a canonical-raft-mdb akin to the [`MDBstore` of hashicorp](https://github.com/hashicorp/raft-mdb).
 
 ## Installation
 
