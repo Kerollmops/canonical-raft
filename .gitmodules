@@ -1,0 +1,4 @@
+[submodule "canonical-raft-sys/canonical-raft"]
+  path = canonical-raft-sys/canonical-raft
+  url = https://github.com/Kerollmops/raft.git
+  branch = "master"
