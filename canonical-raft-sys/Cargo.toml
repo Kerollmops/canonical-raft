@@ -22,7 +22,8 @@ name = "canonical_raft_sys"
 
 [dependencies]
 libc = "0.2"
-libuv-sys2 = { git = "https://github.com/Kerollmops/libuv-sys.git" }
+# libuv-sys2 = { git = "https://github.com/Kerollmops/libuv-sys.git" }
+libuv-sys2 = { path = "../../libuv-sys" }
 
 [build-dependencies]
 pkg-config = "0.3"

@@ -6,3 +6,11 @@ edition = "2018"
 
 [dependencies]
 canonical-raft-sys = { path = "canonical-raft-sys" }
+libc = "0.2.69"
+libuv-sys2 = { path = "../libuv-sys" }
+
+[dev-dependencies]
+rand = "0.7.3"
+
+[profile.release]
+debug = true

@@ -274,7 +274,7 @@ unsafe fn server_init(
     let rv = raft_bootstrap(&mut (*s).raft, &configuration);
     if rv != 0 && rv != RAFT_CANTBOOTSTRAP {
         // goto err_after_configuration_init;
-        panic!("Bubuut?!");
+        panic!("Bubuut?! Cant bootstrap raft (address already in use???)");
     }
 
     raft_configuration_close(&mut configuration);

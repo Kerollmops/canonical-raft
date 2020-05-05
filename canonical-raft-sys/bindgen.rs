@@ -37,6 +37,7 @@ pub fn generate() {
     out_path.push("src");
 
     let bindings = bindgen::Builder::default()
+        .clang_arg("-I../../libuv-sys/libuv/include")
         .header(craft.join("raft.h").to_string_lossy())
         .header(craft.join("raft").join("uv.h").to_string_lossy())
         .header(craft.join("raft").join("fixture.h").to_string_lossy())

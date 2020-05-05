@@ -1101,11 +1101,11 @@ extern "C" {
     #[doc = " Release any memory allocated internally."]
     pub fn raft_uv_tcp_close(t: *mut raft_uv_transport);
 }
-pub const RAFT_FIXTURE_TICK: _bindgen_ty_5 = 1;
-pub const RAFT_FIXTURE_NETWORK: _bindgen_ty_5 = 2;
-pub const RAFT_FIXTURE_DISK: _bindgen_ty_5 = 3;
+pub const RAFT_FIXTURE_TICK: _bindgen_ty_6 = 1;
+pub const RAFT_FIXTURE_NETWORK: _bindgen_ty_6 = 2;
+pub const RAFT_FIXTURE_DISK: _bindgen_ty_6 = 3;
 #[doc = " Fixture step event types."]
-pub type _bindgen_ty_5 = u32;
+pub type _bindgen_ty_6 = u32;
 #[doc = " State of a single server in a cluster fixture."]
 #[repr(C)]
 #[derive(Copy, Clone)]

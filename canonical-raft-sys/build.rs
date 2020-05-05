@@ -48,7 +48,7 @@ fn main() {
                 craft.join("snapshot.c"),
                 craft.join("start.c"),
                 craft.join("state.c"),
-                craft.join("syscall.c"),
+                // craft.join("syscall.c"),
                 craft.join("tick.c"),
                 craft.join("tracing.c"),
                 craft.join("uv.c"),
@@ -71,6 +71,7 @@ fn main() {
                 craft.join("uv_truncate.c"),
                 craft.join("uv_writer.c"),
             ].iter())
+            .flag_if_supported("-I../../libuv-sys/libuv/include")
             .flag_if_supported("-Wno-unused-parameter")
             .flag_if_supported("-Wbad-function-cast")
             .flag_if_supported("-Wuninitialized");
